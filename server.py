@@ -5,7 +5,10 @@ import json
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-sys.stdout.reconfigure(encoding='utf-8')
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+except Exception:
+    pass
 
 from flask import Flask, request, jsonify, render_template
 import requests
