@@ -3,7 +3,7 @@ import os
 import re
 import json
 import urllib.parse
-from concurrent.futures import ThreadPoolExecutor, as_completed
+# ThreadPoolExecutorはVercelで使えないので順次実行
 
 try:
     sys.stdout.reconfigure(encoding='utf-8')
@@ -556,21 +556,18 @@ def search():
 
     all_results = []
 
-    # 並列で3サイト検索（メルカリ除外、ラクマ追加）
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {
-            executor.submit(search_paypay, keyword, price_min, price_max, exclude_color): "paypay",
-            executor.submit(search_yahoo_auction, keyword, price_min, price_max, exclude_color): "yahoo",
-            executor.submit(search_rakuma, keyword, price_min, price_max, exclude_color): "rakuma",
-        }
-        for future in as_completed(futures):
-            source = futures[future]
-            try:
-                results = future.result()
-                all_results.extend(results)
-                print(f"[{source}] {len(results)} items found")
-            except Exception as e:
-                print(f"[{source}] Error: {e}")
+    # 順次検索（Vercel互換）
+    for search_fn, source in [
+        (search_paypay, "paypay"),
+        (search_yahoo_auction, "yahoo"),
+        (search_rakuma, "rakuma"),
+    ]:
+        try:
+            results = search_fn(keyword, price_min, price_max, exclude_color)
+            all_results.extend(results)
+            print(f"[{source}] {len(results)} items found")
+        except Exception as e:
+            print(f"[{source}] Error: {e}")
 
     # AI除外ワードでフィルタリング
     if ai_excludes:
