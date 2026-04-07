@@ -13,6 +13,59 @@ from bs4 import BeautifulSoup
 
 app = Flask(__name__)
 
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
+
+def natural_language_to_query(user_input):
+    """自然言語をフリマ検索キーワード+除外ワード+価格帯に変換する"""
+    if not ANTHROPIC_API_KEY:
+        return {"keywords": user_input, "exclude": [], "exclude_color": "", "min_price": None, "max_price": None}
+
+    prompt = f"""あなたはフリマサイトの検索クエリ最適化AIです。
+ユーザーの自然言語の入力を、フリマサイト（ヤフオク・PayPayフリマ・ラクマ）で最も良い結果が出る検索キーワードに変換してください。
+
+ルール：
+- keywordsは日本語のフリマ検索に最適化されたスペース区切りのキーワード（3-5語）
+- excludeはタイトルに含まれていたら除外すべきワードのリスト
+- exclude_colorは除外したい色（「黒」「白」等）。なければ空文字
+- min_price/max_priceは数値。指定がなければnull
+
+例1:
+入力: 「結婚式の二次会に着ていけるドレス。上品だけどキャバ嬢っぽくない。黒はダメ」
+出力: {{"keywords": "パーティードレス 上品 レース ワンピース", "exclude": ["コスプレ", "子供", "キッズ", "ベビー", "キャバ", "セクシー", "ミニ丈", "カード"], "exclude_color": "黒", "min_price": null, "max_price": null}}
+
+例2:
+入力: 「3000円から7000円くらいで上品なドレス」
+出力: {{"keywords": "ドレス フォーマル 上品 レース", "exclude": ["コスプレ", "子供", "キッズ", "カード"], "exclude_color": "", "min_price": 3000, "max_price": 7000}}
+
+入力: 「{user_input}」
+出力（JSONのみ、説明不要）:"""
+
+    try:
+        resp = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json"
+            },
+            json={
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": 300,
+                "messages": [{"role": "user", "content": prompt}]
+            },
+            timeout=10
+        )
+        if resp.status_code == 200:
+            text = resp.json()["content"][0]["text"].strip()
+            # JSONだけ抽出
+            json_match = re.search(r'\{.*\}', text, re.DOTALL)
+            if json_match:
+                return json.loads(json_match.group())
+    except Exception as e:
+        print(f"[AI] Error: {e}")
+
+    return {"keywords": user_input, "exclude": [], "exclude_color": "", "min_price": None, "max_price": None}
+
 # User-Agent設定
 UA_MOBILE = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
@@ -480,10 +533,23 @@ def index():
 
 @app.route('/search')
 def search():
-    keyword = request.args.get('q', 'パーティードレス レース')
+    raw_query = request.args.get('q', 'パーティードレス レース')
     price_min = request.args.get('min', '3000')
     price_max = request.args.get('max', '7000')
     exclude_color = request.args.get('exclude_color', '')
+
+    # 自然言語をAIで検索クエリに変換
+    ai_result = natural_language_to_query(raw_query)
+    keyword = ai_result.get("keywords", raw_query)
+    ai_excludes = ai_result.get("exclude", [])
+    if ai_result.get("exclude_color"):
+        exclude_color = ai_result["exclude_color"]
+    if ai_result.get("min_price"):
+        price_min = str(ai_result["min_price"])
+    if ai_result.get("max_price"):
+        price_max = str(ai_result["max_price"])
+
+    print(f"[AI] '{raw_query}' → keywords='{keyword}', exclude={ai_excludes}, color={exclude_color}")
 
     all_results = []
 
@@ -503,10 +569,30 @@ def search():
             except Exception as e:
                 print(f"[{source}] Error: {e}")
 
+    # AI除外ワードでフィルタリング
+    if ai_excludes:
+        filtered = []
+        for r in all_results:
+            title_lower = r["title"].lower()
+            if not any(ex.lower() in title_lower for ex in ai_excludes):
+                filtered.append(r)
+        print(f"[AI filter] {len(all_results)} → {len(filtered)} items (excluded {len(all_results)-len(filtered)})")
+        all_results = filtered
+
     # 価格でソート（0は最後に）
     all_results.sort(key=lambda x: (x["price"] == 0, x["price"]))
 
-    return jsonify({"results": all_results})
+    return jsonify({
+        "results": all_results,
+        "parsed": {
+            "original": raw_query,
+            "keywords": keyword,
+            "exclude": ai_excludes,
+            "exclude_color": exclude_color,
+            "price_min": price_min,
+            "price_max": price_max
+        }
+    })
 
 
 if __name__ == '__main__':

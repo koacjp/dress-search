@@ -102,9 +102,9 @@
             <!-- 検索フォーム -->
             <form id="searchForm" class="space-y-3">
                 <div class="flex gap-2">
-                    <input type="text" id="keyword" value="パーティードレス レース"
+                    <input type="text" id="keyword" value=""
                         class="flex-1 px-4 py-2.5 rounded-full border border-gray-200 focus:border-pink-400 focus:ring-2 focus:ring-pink-100 outline-none text-sm"
-                        placeholder="キーワードを入力...">
+                        placeholder="例: 結婚式の二次会に使える上品なドレス。キャバ嬢っぽくない方がいい">
                     <button type="submit"
                         class="px-6 py-2.5 bg-pink-500 hover:bg-pink-600 text-white rounded-full text-sm font-medium transition-colors">
                         検索
@@ -142,6 +142,7 @@
 
     <!-- 結果カウント -->
     <div class="max-w-6xl mx-auto px-4 py-3">
+        <div id="aiInfo" class="hidden mb-3 px-4 py-2 bg-purple-50 rounded-lg text-sm text-purple-700"></div>
         <div id="resultInfo" class="text-sm text-gray-400"></div>
     </div>
 
@@ -233,6 +234,7 @@
             noResults.classList.add('hidden');
             loading.classList.remove('hidden');
             resultInfo.textContent = '';
+            document.getElementById('aiInfo').classList.add('hidden');
 
             try {
                 // 除外色ごとにリクエスト（最初の1つだけサーバーに送る、残りはクライアントでフィルタ）
@@ -248,6 +250,21 @@
                 const data = await resp.json();
 
                 let items = data.results || [];
+
+                // AI解釈結果を表示
+                if (data.parsed) {
+                    const ai = data.parsed;
+                    const aiInfo = document.getElementById('aiInfo');
+                    let info = `🔍 「${ai.original}」→ <strong>${ai.keywords}</strong>`;
+                    if (ai.exclude && ai.exclude.length > 0) {
+                        info += ` | 除外: ${ai.exclude.join(', ')}`;
+                    }
+                    if (ai.exclude_color) {
+                        info += ` | ${ai.exclude_color}を除外`;
+                    }
+                    aiInfo.innerHTML = info;
+                    aiInfo.classList.remove('hidden');
+                }
 
                 // クライアント側で追加の除外色フィルタ
                 if (excludeColors.length > 1) {
