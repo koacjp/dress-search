@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dress Search - フリマ横断検索</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&display=swap');
+        body { font-family: 'Noto Sans JP', sans-serif; }
+
+        /* Pinterest風 Masonry */
+        .masonry {
+            columns: 4;
+            column-gap: 16px;
+        }
+        .masonry-item {
+            break-inside: avoid;
+            margin-bottom: 16px;
+        }
+        @media (max-width: 1024px) { .masonry { columns: 3; } }
+        @media (max-width: 768px)  { .masonry { columns: 2; column-gap: 10px; } .masonry-item { margin-bottom: 10px; } }
+
+        /* カードホバー */
+        .card {
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 24px rgba(0,0,0,0.12);
+        }
+
+        /* ソースバッジ */
+        .badge-rakuma  { background: #6A1B9A; }
+        .badge-paypay  { background: #FF0033; background: linear-gradient(135deg, #FF0033, #FF6600); }
+        .badge-yahoo   { background: #FF5C00; }
+
+        /* ローディング */
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #ec4899;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* フェードイン */
+        .fade-in {
+            animation: fadeIn 0.4s ease forwards;
+            opacity: 0;
+        }
+        @keyframes fadeIn { to { opacity: 1; } }
+
+        /* チェックボックス */
+        .color-check {
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #d1d5db;
+            border-radius: 4px;
+            cursor: pointer;
+            position: relative;
+        }
+        .color-check:checked {
+            background: #ec4899;
+            border-color: #ec4899;
+        }
+        .color-check:checked::after {
+            content: '✕';
+            color: white;
+            font-size: 12px;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        /* プレースホルダー画像 */
+        .placeholder-img {
+            background: linear-gradient(135deg, #fce4ec, #f3e5f5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 200px;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+    <!-- ヘッダー -->
+    <header class="bg-white border-b border-gray-100 sticky top-0 z-50 shadow-sm">
+        <div class="max-w-6xl mx-auto px-4 py-4">
+            <div class="flex items-center justify-between mb-4">
+                <h1 class="text-2xl font-light tracking-wide text-gray-800">
+                    <span class="text-pink-500 font-medium">Dress</span> Search
+                </h1>
+                <span class="text-xs text-gray-400">PayPayフリマ / ヤフオク / ラクマ 横断検索</span>
+            </div>
+
+            <!-- 検索フォーム -->
+            <form id="searchForm" class="space-y-3">
+                <div class="flex gap-2">
+                    <input type="text" id="keyword" value="パーティードレス レース"
+                        class="flex-1 px-4 py-2.5 rounded-full border border-gray-200 focus:border-pink-400 focus:ring-2 focus:ring-pink-100 outline-none text-sm"
+                        placeholder="キーワードを入力...">
+                    <button type="submit"
+                        class="px-6 py-2.5 bg-pink-500 hover:bg-pink-600 text-white rounded-full text-sm font-medium transition-colors">
+                        検索
+                    </button>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-4 text-sm">
+                    <!-- 価格帯 -->
+                    <div class="flex items-center gap-2 text-gray-600">
+                        <span>¥</span>
+                        <input type="number" id="priceMin" value="3000"
+                            class="w-20 px-2 py-1.5 rounded-lg border border-gray-200 focus:border-pink-400 outline-none text-center">
+                        <span>~</span>
+                        <input type="number" id="priceMax" value="7000"
+                            class="w-20 px-2 py-1.5 rounded-lg border border-gray-200 focus:border-pink-400 outline-none text-center">
+                    </div>
+
+                    <!-- 除外色 -->
+                    <div class="flex items-center gap-3 text-gray-600">
+                        <span class="text-xs text-gray-400">除外色:</span>
+                        <label class="flex items-center gap-1 cursor-pointer">
+                            <input type="checkbox" class="color-check" value="黒" checked> <span class="text-xs">黒</span>
+                        </label>
+                        <label class="flex items-center gap-1 cursor-pointer">
+                            <input type="checkbox" class="color-check" value="白"> <span class="text-xs">白</span>
+                        </label>
+                        <label class="flex items-center gap-1 cursor-pointer">
+                            <input type="checkbox" class="color-check" value="赤"> <span class="text-xs">赤</span>
+                        </label>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </header>
+
+    <!-- 結果カウント -->
+    <div class="max-w-6xl mx-auto px-4 py-3">
+        <div id="resultInfo" class="text-sm text-gray-400"></div>
+    </div>
+
+    <!-- ローディング -->
+    <div id="loading" class="hidden flex flex-col items-center justify-center py-20">
+        <div class="spinner"></div>
+        <p class="mt-4 text-sm text-gray-400">検索中...</p>
+    </div>
+
+    <!-- 結果なし -->
+    <div id="noResults" class="hidden text-center py-20">
+        <div class="text-6xl mb-4">👗</div>
+        <p class="text-gray-500 text-lg">条件に合うアイテムが見つかりませんでした</p>
+        <p class="text-gray-400 text-sm mt-2">キーワードや価格帯を変えてみてください</p>
+    </div>
+
+    <!-- 結果グリッド -->
+    <div class="max-w-6xl mx-auto px-4 pb-20">
+        <div id="results" class="masonry"></div>
+    </div>
+
+    <script>
+        const form = document.getElementById('searchForm');
+        const resultsContainer = document.getElementById('results');
+        const loading = document.getElementById('loading');
+        const noResults = document.getElementById('noResults');
+        const resultInfo = document.getElementById('resultInfo');
+
+        function getExcludeColors() {
+            const checked = document.querySelectorAll('.color-check:checked');
+            return Array.from(checked).map(c => c.value);
+        }
+
+        function sourceLabel(source) {
+            const map = {
+                'rakuma': { name: 'ラクマ', class: 'badge-rakuma' },
+                'paypay':  { name: 'PayPay',   class: 'badge-paypay' },
+                'yahoo':   { name: 'ヤフオク', class: 'badge-yahoo' }
+            };
+            return map[source] || { name: source, class: 'bg-gray-500' };
+        }
+
+        function formatPrice(price) {
+            if (!price) return '価格不明';
+            return '¥' + price.toLocaleString();
+        }
+
+        function createCard(item, index) {
+            const badge = sourceLabel(item.source);
+            const delay = Math.min(index * 50, 500);
+            const hasImage = item.image && item.image.startsWith('https://');
+
+            return `
+                <div class="masonry-item fade-in" style="animation-delay: ${delay}ms">
+                    <a href="${item.url}" target="_blank" rel="noopener noreferrer" class="block card bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100">
+                        ${hasImage
+                            ? `<img src="${item.image}" alt="${item.title}" class="w-full object-cover" loading="lazy"
+                                onerror="this.parentElement.querySelector('.placeholder-img')?.classList.remove('hidden'); this.classList.add('hidden');">
+                               <div class="placeholder-img hidden"><span class="text-4xl">👗</span></div>`
+                            : `<div class="placeholder-img"><span class="text-4xl">👗</span></div>`
+                        }
+                        <div class="p-3">
+                            <div class="flex items-start justify-between gap-2 mb-2">
+                                <span class="${badge.class} text-white text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0">
+                                    ${badge.name}
+                                </span>
+                                ${item.shipping ? `<span class="text-[10px] text-gray-400">${item.shipping}</span>` : ''}
+                            </div>
+                            <h3 class="text-xs text-gray-700 leading-relaxed line-clamp-2 mb-2">${item.title}</h3>
+                            <div class="flex items-baseline gap-2">
+                                <span class="text-lg font-bold text-pink-600">${formatPrice(item.price)}</span>
+                                ${item.original_price ? `<span class="text-[10px] text-gray-400 line-through">${item.original_price}</span>` : ''}
+                            </div>
+                        </div>
+                    </a>
+                </div>
+            `;
+        }
+
+        async function doSearch() {
+            const keyword = document.getElementById('keyword').value.trim();
+            const priceMin = document.getElementById('priceMin').value;
+            const priceMax = document.getElementById('priceMax').value;
+            const excludeColors = getExcludeColors();
+
+            if (!keyword) return;
+
+            resultsContainer.innerHTML = '';
+            noResults.classList.add('hidden');
+            loading.classList.remove('hidden');
+            resultInfo.textContent = '';
+
+            try {
+                // 除外色ごとにリクエスト（最初の1つだけサーバーに送る、残りはクライアントでフィルタ）
+                const excludeColor = excludeColors[0] || '';
+                const params = new URLSearchParams({
+                    q: keyword,
+                    min: priceMin,
+                    max: priceMax,
+                    exclude_color: excludeColor
+                });
+
+                const resp = await fetch('/search?' + params.toString());
+                const data = await resp.json();
+
+                let items = data.results || [];
+
+                // クライアント側で追加の除外色フィルタ
+                if (excludeColors.length > 1) {
+                    const extraColors = excludeColors.slice(1);
+                    const colorKeywords = {
+                        '黒': ['黒', 'ブラック', 'black'],
+                        '白': ['白', 'ホワイト', 'white'],
+                        '赤': ['赤', 'レッド', 'red'],
+                        '青': ['青', 'ブルー', 'blue'],
+                        'ピンク': ['ピンク', 'pink'],
+                    };
+                    items = items.filter(item => {
+                        const title = item.title.toLowerCase();
+                        return !extraColors.some(color => {
+                            const kws = colorKeywords[color] || [color];
+                            return kws.some(k => title.includes(k.toLowerCase()));
+                        });
+                    });
+                }
+
+                loading.classList.add('hidden');
+
+                if (items.length === 0) {
+                    noResults.classList.remove('hidden');
+                    resultInfo.textContent = '0件';
+                    return;
+                }
+
+                resultInfo.textContent = `${items.length}件見つかりました`;
+                resultsContainer.innerHTML = items.map((item, i) => createCard(item, i)).join('');
+
+            } catch (err) {
+                loading.classList.add('hidden');
+                noResults.classList.remove('hidden');
+                resultInfo.textContent = 'エラーが発生しました';
+                console.error(err);
+            }
+        }
+
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            doSearch();
+        });
+
+        // 初回自動検索
+        // doSearch();
+    </script>
+</body>
+</html>
